@@ -1,17 +1,20 @@
 (function ($) {
+// define variables
 var canvas = document.getElementById('canvas');
 var ctx = canvas.getContext('2d');
 var player, score, stop, ticker;
 var ground = [], water = [], enemies = [], environment = [];
 
+// platform variables
 var platformHeight, platformLength, gapLength;
 var platformWidth = 32;
-var platformBase = canvas.height - platformWidth; 
+var platformBase = canvas.height - platformWidth;  // bottom row of the game
 var platformSpacer = 64;
 
 var canUseLocalStorage = 'localStorage' in window && window.localStorage !== null;
 var playSound;
 
+// set the sound preference
 if (canUseLocalStorage) {
   playSound = (localStorage.getItem('kandi.playSound') === "true")
 
@@ -23,48 +26,69 @@ if (canUseLocalStorage) {
   }
 }
 
+/**
+ * Get a random number between range
+ * @param {integer}
+ * @param {integer}
+ */
 function rand(low, high) {
   return Math.floor( Math.random() * (high - low + 1) + low );
 }
 
+/**
+ * Bound a number between range
+ * @param {integer} num - Number to bound
+ * @param {integer}
+ * @param {integer}
+ */
 function bound(num, low, high) {
   return Math.max( Math.min(num, high), low);
 }
 
+/**
+ * Asset pre-loader object. Loads all images
+ */
 var assetLoader = (function() {
+  // images dictionary
   this.imgs        = {
     'bg'            : 'imgs/bg.png',
     'sky'           : 'imgs/sky.png',
     'backdrop'      : 'imgs/backdrop.png',
-    'backdrop2'     : 'imgs/backdrop_ground.png',
-    'grass'         : 'imgs/grass.png',
+    'backdrop2'     : 'imgs/fondo del fondo2.png',
+    'grass'         : 'imgs/zacate.png',
     'avatar_normal' : 'imgs/normal_walk.png',
     'water'         : 'imgs/water.png',
-    'grass1'        : 'imgs/grassMid1.png',
-    'grass2'        : 'imgs/grassMid2.png',
+    'grass1'        : 'imgs/tierramid1.png',
+    'grass2'        : 'imgs/tierramid2.png',
     'bridge'        : 'imgs/bridge.png',
-    'plant'         : 'imgs/plant.png',
+    'plant'         : 'imgs/planta.png',
     'bush1'         : 'imgs/bush1.png',
     'bush2'         : 'imgs/bush2.png',
-    'cliff'         : 'imgs/grassCliffRight.png',
+    'cliff'         : 'imgs/zacated.png',
     'spikes'        : 'imgs/spikes.png',
     'box'           : 'imgs/boxCoin.png',
-    'slime'         : 'imgs/slime.png'
+    'enemigo'         : 'imgs/enemigo2.png'
   };
 
+  // sounds dictionary
   this.sounds      = {
     'bg'            : 'sounds/bg.mp3',
     'jump'          : 'sounds/jump.mp3',
     'gameOver'      : 'sounds/gameOver.mp3'
   };
 
-  var assetsLoaded = 0;                                
-  var numImgs      = Object.keys(this.imgs).length;    
-  var numSounds    = Object.keys(this.sounds).length;  
-  this.totalAssest = numImgs;                          
+  var assetsLoaded = 0;                                // how many assets have been loaded
+  var numImgs      = Object.keys(this.imgs).length;    // total number of image assets
+  var numSounds    = Object.keys(this.sounds).length;  // total number of sound assets
+  this.totalAssest = numImgs;                          // total number of assets
 
+  /**
+   * Ensure all assets are loaded before using them
+   * @param {number} dic  - Dictionary name ('imgs', 'sounds', 'fonts')
+   * @param {number} name - Asset name in the dictionary
+   */
   function assetLoaded(dic, name) {
-    
+    // don't count assets that have already loaded
     if (this[dic][name].status !== 'loading') {
       return;
     }
@@ -72,29 +96,40 @@ var assetLoader = (function() {
     this[dic][name].status = 'loaded';
     assetsLoaded++;
 
+    // progress callback
     if (typeof this.progress === 'function') {
       this.progress(assetsLoaded, this.totalAssest);
     }
 
+    // finished callback
     if (assetsLoaded === this.totalAssest && typeof this.finished === 'function') {
       this.finished();
     }
   }
 
+  /**
+   * Check the ready state of an Audio file.
+   * @param {object} sound - Name of the audio asset that was loaded.
+   */
   function _checkAudioState(sound) {
     if (this.sounds[sound].status === 'loading' && this.sounds[sound].readyState === 4) {
       assetLoaded.call(this, 'sounds', sound);
     }
   }
 
+  /**
+   * Create assets, set callback for asset loading, set asset source
+   */
   this.downloadAll = function() {
     var _this = this;
     var src;
 
+    // load images
     for (var img in this.imgs) {
       if (this.imgs.hasOwnProperty(img)) {
         src = this.imgs[img];
 
+        // create a closure for event binding
         (function(_this, img) {
           _this.imgs[img] = new Image();
           _this.imgs[img].status = 'loading';
@@ -105,10 +140,12 @@ var assetLoader = (function() {
       }
     }
 
+    // load sounds
     for (var sound in this.sounds) {
       if (this.sounds.hasOwnProperty(sound)) {
         src = this.sounds[sound];
 
+        // create a closure for event binding
         (function(_this, sound) {
           _this.sounds[sound] = new Audio();
           _this.sounds[sound].status = 'loading';
@@ -132,21 +169,36 @@ var assetLoader = (function() {
   };
 })();
 
+/**
+ * Show asset loading progress
+ * @param {integer} progress - Number of assets loaded
+ * @param {integer} total - Total number of assets
+ */
 assetLoader.progress = function(progress, total) {
   var pBar = document.getElementById('progress-bar');
   pBar.value = progress / total;
   document.getElementById('p').innerHTML = Math.round(pBar.value * 100) + "%";
 }
 
+/**
+ * Load the main menu
+ */
 assetLoader.finished = function() {
   mainMenu();
 }
 
+/**
+ * Creates a Spritesheet
+ * @param {string} - Path to the image.
+ * @param {number} - Width (in px) of each frame.
+ * @param {number} - Height (in px) of each frame.
+ */
 function SpriteSheet(path, frameWidth, frameHeight) {
   this.image = new Image();
   this.frameWidth = frameWidth;
   this.frameHeight = frameHeight;
 
+  // calculate the number of frames in a row after the image loads
   var self = this;
   this.image.onload = function() {
     self.framesPerRow = Math.floor(self.image.width / self.frameWidth);
@@ -155,24 +207,43 @@ function SpriteSheet(path, frameWidth, frameHeight) {
   this.image.src = path;
 }
 
+/**
+ * Creates an animation from a spritesheet.
+ * @param {SpriteSheet} - The spritesheet used to create the animation.
+ * @param {number}      - Number of frames to wait for before transitioning the animation.
+ * @param {array}       - Range or sequence of frame numbers for the animation.
+ * @param {boolean}     - Repeat the animation once completed.
+ */
 function Animation(spritesheet, frameSpeed, startFrame, endFrame) {
 
-  var animationSequence = [];  
-  var currentFrame = 0;        
-  var counter = 0;             
+  var animationSequence = [];  // array holding the order of the animation
+  var currentFrame = 0;        // the current frame to draw
+  var counter = 0;             // keep track of frame rate
 
+  // start and end range for frames
   for (var frameNumber = startFrame; frameNumber <= endFrame; frameNumber++)
     animationSequence.push(frameNumber);
 
+  /**
+   * Update the animation
+   */
   this.update = function() {
 
+    // update to the next frame if it is time
     if (counter == (frameSpeed - 1))
       currentFrame = (currentFrame + 1) % animationSequence.length;
 
+    // update the counter
     counter = (counter + 1) % frameSpeed;
   };
 
+  /**
+   * Draw the current frame
+   * @param {integer} x - X position to draw
+   * @param {integer} y - Y position to draw
+   */
   this.draw = function(x, y) {
+    // get the row and col of the frame
     var row = Math.floor(animationSequence[currentFrame] / spritesheet.framesPerRow);
     var col = Math.floor(animationSequence[currentFrame] % spritesheet.framesPerRow);
 
@@ -185,6 +256,9 @@ function Animation(spritesheet, frameSpeed, startFrame, endFrame) {
   };
 }
 
+/**
+ * Create a parallax background
+ */
 var background = (function() {
   var sky   = {};
   var backdrop = {};
@@ -302,7 +376,7 @@ Vector.prototype.minDist = function(vec) {
  */
 var player = (function(player) {
   // add properties directly to the player imported object
-  player.width     = 60;
+  player.width     = 58;
   player.height    = 96;
   player.speed     = 6;
 
@@ -314,7 +388,7 @@ var player = (function(player) {
   player.isJumping = false;
 
   // spritesheets
-  player.sheet     = new SpriteSheet('imgs/normal_walk.png', player.width, player.height);
+  player.sheet     = new SpriteSheet('imgs/Ness2.png', player.width, player.height);
   player.walkAnim  = new Animation(player.sheet, 4, 0, 15);
   player.jumpAnim  = new Animation(player.sheet, 4, 15, 15);
   player.fallAnim  = new Animation(player.sheet, 4, 11, 11);
@@ -617,7 +691,7 @@ function spawnEnemySprites() {
     enemies.push(new Sprite(
       canvas.width + platformWidth % player.speed,
       platformBase - platformHeight * platformSpacer - platformWidth,
-      Math.random() > 0.5 ? 'spikes' : 'slime'
+      Math.random() > 0.5 ? 'spikes' : 'enemigo'
     ));
   }
 }
